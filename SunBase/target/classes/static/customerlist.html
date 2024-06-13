@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer List</title>
+</head>
+<body>
+<h1>Customer List</h1>
+
+<button onclick="window.location.href='/addCustomer.html'">Add Customer</button>
+<button onclick="getCustomerList()">Sync</button>
+<input type="text" id="searchInput" placeholder="Search..." oninput="fetchCustomers()">
+
+<label for="sortSelect">Sort by:</label>
+<select id="sortSelect" onchange="fetchCustomers()">
+    <option value="firstName">First Name</option>
+    <option value="lastName">Last Name</option>
+    <option value="city">City</option>
+    <option value="email">Email</option>
+    <option value="phone">Phone</option>
+</select>
+<label for="sortDirection">Direction:</label>
+<select id="sortDirection" onchange="fetchCustomers()">
+    <option value="asc">Ascending</option>
+    <option value="desc">Descending</option>
+</select>
+<table border="1">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>First Name</th>
+        <th>Last Name</th>
+        <th>Street</th>
+        <th>Address</th>
+        <th>City</th>
+        <th>State</th>
+        <th>Email</th>
+        <th>Phone</th>
+        <th>Actions</th>
+    </tr>
+    </thead>
+    <tbody id="customerTableBody"></tbody>
+</table>
+<button id="prevPage" onclick="changePage(-1)">Previous</button>
+<span id="pageInfo"></span>
+<button id="nextPage" onclick="changePage(1)">Next</button>
+<script>
+    let currentPage = 0;
+const pageSize = 10;
+
+function fetchCustomers() {
+    const search = document.getElementById('searchInput').value;
+    const sortBy = document.getElementById('sortSelect').value;
+    const direction = document.getElementById('sortDirection').value;
+
+    fetch(`/customer/allCustomers?page=${currentPage}&size=${pageSize}&sortBy=${sortBy}&direction=${direction}&search=${search}`)
+        .then(response => response.json())
+        .then(data => {
+            displayCustomers(data.content);
+            document.getElementById('pageInfo').textContent = `Page ${data.number + 1} of ${data.totalPages}`;
+            document.getElementById('prevPage').disabled = data.first;
+            document.getElementById('nextPage').disabled = data.last;
+        })
+        .catch(error => {
+            console.error('Error fetching customer data:', error);
+        });
+}
+
+function displayCustomers(customers) {
+    const customerTableBody = document.getElementById('customerTableBody');
+    customerTableBody.innerHTML = ''; // Clear existing rows
+    customers.forEach(customer => {
+        console.log(customer)
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${customer.id}</td>
+            <td>${customer.first_name}</td>
+            <td>${customer.last_name}</td>
+            <td>${customer.street}</td>
+            <td>${customer.address}</td>
+            <td>${customer.city}</td>
+            <td>${customer.state}</td>
+            <td>${customer.email}</td>
+            <td>${customer.phone}</td>
+            <td>
+                <button onclick="editCustomer('${customer.id}')">Edit</button>
+                <button onclick="deleteCustomer('${customer.id}')">Delete</button>
+            </td>
+        `;
+        customerTableBody.appendChild(row);
+    });
+}
+
+function changePage(offset) {
+    currentPage += offset;
+    fetchCustomers();
+}
+
+function getCustomerList() {
+    const token = sessionStorage.getItem('token'); // Retrieve token from session storage
+
+    if (!token) {
+        alert('Token not found. Please authenticate first.');
+        return;
+    }
+
+    fetch('/get-customer-list', {
+        method: 'GET',
+        headers: {
+            'Authorization': 'Bearer ' + token
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Failed to fetch customer list');
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Data fetched from server:', data); // Log fetched data
+
+        // Validate fetched data
+        data.forEach(customer => {
+            if (!customer.firstname || !customer.last_name) {
+                console.warn('Missing data:', customer);
+            }
+        });
+
+        // Send the customer list to the backend to save in the database
+        return fetch('/customer/syncCustomers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+    })
+    .then(response => {
+        if (response.ok) {
+            alert('Customers synchronized successfully.');
+            const customerTableBody = document.getElementById('customerTableBody');
+            customerTableBody.innerHTML = ''; // Clear the table
+            fetchCustomers(); // Refresh the customer list after sync
+        } else {
+            throw new Error('Failed to sync customers');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('response').textContent = 'Error fetching customer list';
+    });
+}
+
+function deleteCustomer(customerId) {
+    if (confirm('Are you sure you want to delete this customer?')) {
+        fetch(`/customer/delete/${customerId}`, {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to delete customer');
+            }
+            const customerTableBody = document.getElementById('customerTableBody');
+            customerTableBody.innerHTML = ''; // Clear the table
+            fetchCustomers();
+        })
+        .catch(error => {
+            console.error('Error deleting customer:', error);
+        });
+    }
+}
+
+function editCustomer(customerId) {
+    fetch(`/customer/getCustomerById/${customerId}`)
+        .then(response => response.json())
+        .then(customer => {
+            const editForm = document.createElement('form');
+            editForm.innerHTML = `
+                <label for="firstName">First Name:</label>
+                <input type="text" id="firstName" name="firstName" value="${customer.first_name}"><br><br>
+                <label for="lastName">Last Name:</label>
+                <input type="text" id="lastName" name="lastName" value="${customer.last_name}"><br><br>
+                <label for="street">Street:</label>
+                <input type="text" id="street" name="street" value="${customer.street}"><br><br>
+                <label for="address">Address:</label>
+                <input type="text" id="address" name="address" value="${customer.address}"><br><br>
+                <label for="city">City:</label>
+                <input type="text" id="city" name="city" value="${customer.city}"><br><br>
+                <label for="state">State:</label>
+                <input type="text" id="state" name="state" value="${customer.state}"><br><br>
+                <label for="email">Email:</label>
+                <input type="email" id="email" name="email" value="${customer.email}"><br><br>
+                <label for="phone">Phone:</label>
+                <input type="text" id="phone" name="phone" value="${customer.phone}"><br><br>
+                <input type="submit" value="Save">
+            `;
+
+            editForm.addEventListener('submit', function(event) {
+                event.preventDefault();
+                updateCustomer(customerId, this);
+            });
+
+            document.body.appendChild(editForm);
+        })
+        .catch(error => {
+            console.error('Error fetching customer details:', error);
+        });
+}
+
+function updateCustomer(customerId, form) {
+    const formData = new FormData(form);
+    const customerData = {};
+    formData.forEach((value, key) => {
+        customerData[key] = value;
+    });
+
+    fetch(`/customer/update/${customerId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(customerData)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Failed to update customer');
+        }
+        form.remove();
+        const customerTableBody = document.getElementById('customerTableBody');
+        customerTableBody.innerHTML = ''; // Clear the table
+        fetchCustomers();
+    })
+    .catch(error => {
+        console.error('Error updating customer:', error);
+    });
+}
+
+window.onload = fetchCustomers;
+</script>
+</body>
+</html>
